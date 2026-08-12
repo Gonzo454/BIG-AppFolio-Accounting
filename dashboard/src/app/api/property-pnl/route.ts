@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
-import { fetchReport, firstOfMonth, today, parseAmount } from "@/lib/appfolio";
+import { fetchReport, fetchPvReport, firstOfMonth, today, parseAmount } from "@/lib/appfolio";
 import { getOwnership } from "@/lib/ownership";
+import { resolveJoePvBuilding } from "@/lib/pv-buildings";
+import { ENTITY_IDS_BY_NAME } from "@/lib/appfolio-entities";
+
+type ReportFetcher = typeof fetchReport;
 
 interface GLRow {
   account_name?: string;
@@ -113,9 +117,10 @@ async function fetchCapitalAccounts(
   from: string,
   to: string,
   propertyName?: string,
+  fetcher: ReportFetcher = fetchReport,
 ): Promise<{ name: string; number: string; amount: number }[]> {
   try {
-    const glRows = await fetchReport<GLRow>("general_ledger", {
+    const glRows = await fetcher<GLRow>("general_ledger", {
       posted_on_from: from,
       posted_on_to: to,
     });
@@ -158,6 +163,61 @@ async function fetchCapitalAccounts(
   }
 }
 
+/**
+ * Locate a property across both AppFolio databases.
+ *
+ * account_totals omits management entities (Badger Hotel Group, Blackdeer
+ * Investment Group), and Park Vista buildings live in a separate database
+ * under their raw property_name rather than the label shown in the UI.
+ */
+async function resolveProperty(
+  displayName: string,
+  from: string,
+  to: string,
+): Promise<
+  | { propertyId: number; appfolioName: string; fetcher: ReportFetcher; joePct?: number }
+  | undefined
+> {
+  const jrwProperties = await fetchReport<AccountTotalsRow>("account_totals", {
+    posted_on_from: from,
+    posted_on_to: to,
+  });
+  const jrwMatch = jrwProperties.find((p) => p.property_name === displayName);
+  if (jrwMatch?.property_id) {
+    return {
+      propertyId: jrwMatch.property_id,
+      appfolioName: displayName,
+      fetcher: fetchReport,
+    };
+  }
+
+  const entityId = Object.prototype.hasOwnProperty.call(ENTITY_IDS_BY_NAME, displayName)
+    ? ENTITY_IDS_BY_NAME[displayName]
+    : undefined;
+  if (entityId) {
+    return { propertyId: entityId, appfolioName: displayName, fetcher: fetchReport };
+  }
+
+  const pv = resolveJoePvBuilding(displayName);
+  if (pv) {
+    const pvProperties = await fetchPvReport<AccountTotalsRow>("account_totals", {
+      posted_on_from: from,
+      posted_on_to: to,
+    });
+    const pvMatch = pvProperties.find((p) => p.property_name === pv.propertyName);
+    if (pvMatch?.property_id) {
+      return {
+        propertyId: pvMatch.property_id,
+        appfolioName: pv.propertyName,
+        fetcher: fetchPvReport,
+        joePct: pv.entry.pct,
+      };
+    }
+  }
+
+  return undefined;
+}
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const propertyName = params.get("property");
@@ -171,26 +231,23 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const allProperties = await fetchReport<AccountTotalsRow>("account_totals", {
-      posted_on_from: from,
-      posted_on_to: to,
-    });
-    const match = allProperties.find(
-      (p) => p.property_name === propertyName
-    );
-    if (!match?.property_id) {
+    const resolved = await resolveProperty(propertyName, from, to);
+    if (!resolved) {
       return Response.json(
         { error: `Property "${propertyName}" not found` },
         { status: 404 }
       );
     }
+    const { fetcher, appfolioName } = resolved;
+    const ownershipPct = () =>
+      resolved.joePct ?? getOwnership(propertyName);
 
-    const propertyFilter = { properties_ids: [match.property_id] };
-    const capitalPromise = fetchCapitalAccounts(from, to, propertyName);
+    const propertyFilter = { properties_ids: [resolved.propertyId] };
+    const capitalPromise = fetchCapitalAccounts(from, to, appfolioName, fetcher);
 
     if (period === "ytd" || from.endsWith("-01-01")) {
       const [rows, capitalAccounts] = await Promise.all([
-        fetchReport<IncomeRow>("income_statement", {
+        fetcher<IncomeRow>("income_statement", {
           posted_on_from: from,
           posted_on_to: to,
           properties: propertyFilter,
@@ -198,7 +255,7 @@ export async function GET(request: NextRequest) {
         capitalPromise,
       ]);
       const extracted = extractTotals(rows, "year_to_date");
-      const pct = ownershipView ? getOwnership(propertyName) : 1;
+      const pct = ownershipView ? ownershipPct() : 1;
       return Response.json({
         propertyName,
         totalIncome: Math.round(extracted.totalIncome * pct),
@@ -216,7 +273,7 @@ export async function GET(request: NextRequest) {
 
     if (sameMonth(from, to)) {
       const [rows, capitalAccounts] = await Promise.all([
-        fetchReport<IncomeRow>("income_statement", {
+        fetcher<IncomeRow>("income_statement", {
           posted_on_from: from,
           posted_on_to: to,
           properties: propertyFilter,
@@ -224,7 +281,7 @@ export async function GET(request: NextRequest) {
         capitalPromise,
       ]);
       const extracted = extractTotals(rows, "month_to_date");
-      const pct = ownershipView ? getOwnership(propertyName) : 1;
+      const pct = ownershipView ? ownershipPct() : 1;
       return Response.json({
         propertyName,
         totalIncome: Math.round(extracted.totalIncome * pct),
@@ -243,12 +300,12 @@ export async function GET(request: NextRequest) {
     // Multi-month custom range — compute via year_to_date subtraction
     const beforeFrom = dayBefore(from);
     const [endRows, startRows, capitalAccounts] = await Promise.all([
-      fetchReport<IncomeRow>("income_statement", {
+      fetcher<IncomeRow>("income_statement", {
         posted_on_from: from,
         posted_on_to: to,
         properties: propertyFilter,
       }, true),
-      fetchReport<IncomeRow>("income_statement", {
+      fetcher<IncomeRow>("income_statement", {
         posted_on_from: beforeFrom.slice(0, 8) + "01",
         posted_on_to: beforeFrom,
         properties: propertyFilter,
@@ -274,7 +331,7 @@ export async function GET(request: NextRequest) {
       }))
       .filter((a) => a.amount !== 0);
 
-    const pct = ownershipView ? getOwnership(propertyName) : 1;
+    const pct = ownershipView ? ownershipPct() : 1;
     const adjIncome = Math.round(totalIncome * pct);
     const adjExpenses = Math.round(totalExpenses * pct);
 

@@ -14,6 +14,15 @@ export const ENTITY_PROPERTY_IDS = {
 export type ManagedEntity = keyof typeof ENTITY_PROPERTY_IDS;
 
 /**
+ * Same IDs keyed by the property name AppFolio reports for them, so
+ * name-based lookups can resolve entities missing from account_totals.
+ */
+export const ENTITY_IDS_BY_NAME: Record<string, number> = {
+  "Blackdeer Investment Group": ENTITY_PROPERTY_IDS.big,
+  "Badger Hotel Group": ENTITY_PROPERTY_IDS.hotel,
+};
+
+/**
  * Entity classification by property name — mirrors the GL parser's
  * classifyEntity logic.
  */

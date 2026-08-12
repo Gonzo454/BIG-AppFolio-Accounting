@@ -191,7 +191,9 @@ async function resolveProperty(
     };
   }
 
-  const entityId = ENTITY_IDS_BY_NAME[displayName];
+  const entityId = Object.prototype.hasOwnProperty.call(ENTITY_IDS_BY_NAME, displayName)
+    ? ENTITY_IDS_BY_NAME[displayName]
+    : undefined;
   if (entityId) {
     return { propertyId: entityId, appfolioName: displayName, fetcher: fetchReport };
   }

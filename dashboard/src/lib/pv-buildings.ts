@@ -51,8 +51,9 @@ export function isJoePvBuilding(propertyName: string): boolean {
 export function resolveJoePvBuilding(
   displayName: string
 ): { propertyName: string; entry: PvBuildingEntry } | undefined {
-  const direct = JOE_PV_BUILDINGS[displayName];
-  if (direct) return { propertyName: displayName, entry: direct };
+  if (Object.prototype.hasOwnProperty.call(JOE_PV_BUILDINGS, displayName)) {
+    return { propertyName: displayName, entry: JOE_PV_BUILDINGS[displayName] };
+  }
   for (const [propertyName, entry] of Object.entries(JOE_PV_BUILDINGS)) {
     if (entry.label === displayName) return { propertyName, entry };
   }

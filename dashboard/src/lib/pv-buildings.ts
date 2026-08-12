@@ -42,3 +42,19 @@ export const JOE_PV_BUILDINGS: Record<string, PvBuildingEntry> = {
 export function isJoePvBuilding(propertyName: string): boolean {
   return propertyName in JOE_PV_BUILDINGS;
 }
+
+/**
+ * Resolve a display label (as shown in account-totals) back to the
+ * property_name used in the PV AppFolio database. Also accepts the raw
+ * property name. Returns undefined when the name isn't a PV building.
+ */
+export function resolveJoePvBuilding(
+  displayName: string
+): { propertyName: string; entry: PvBuildingEntry } | undefined {
+  const direct = JOE_PV_BUILDINGS[displayName];
+  if (direct) return { propertyName: displayName, entry: direct };
+  for (const [propertyName, entry] of Object.entries(JOE_PV_BUILDINGS)) {
+    if (entry.label === displayName) return { propertyName, entry };
+  }
+  return undefined;
+}

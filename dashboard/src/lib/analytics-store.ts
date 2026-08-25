@@ -17,6 +17,13 @@ export const ANALYTICS_STORE_PATH =
 
 export const ANALYTICS_FORWARD_URL = process.env.ANALYTICS_FORWARD_URL;
 
+export const ANALYTICS_API_TOKEN = process.env.ANALYTICS_API_TOKEN;
+
+export const ANALYTICS_MAX_EVENTS = parseInt(
+  process.env.ANALYTICS_MAX_EVENTS || "10000",
+  10
+);
+
 export function ensureStoreDirectory(): void {
   const dir = path.dirname(ANALYTICS_STORE_PATH);
   if (!fs.existsSync(dir)) {
@@ -27,6 +34,19 @@ export function ensureStoreDirectory(): void {
 export function appendEvent(event: AnalyticsEvent): void {
   ensureStoreDirectory();
   const line = JSON.stringify(event) + "\n";
+
+  if (ANALYTICS_MAX_EVENTS > 0 && fs.existsSync(ANALYTICS_STORE_PATH)) {
+    const raw = fs.readFileSync(ANALYTICS_STORE_PATH, "utf-8").trim();
+    const existingLines = raw ? raw.split("\n") : [];
+    if (existingLines.length >= ANALYTICS_MAX_EVENTS) {
+      const keep = existingLines.slice(-(ANALYTICS_MAX_EVENTS - 1));
+      fs.writeFileSync(
+        ANALYTICS_STORE_PATH,
+        keep.map((l) => (l ? l + "\n" : "")).join("")
+      );
+    }
+  }
+
   fs.appendFileSync(ANALYTICS_STORE_PATH, line);
 }
 
@@ -34,7 +54,10 @@ export function readEvents(): AnalyticsEvent[] {
   if (!fs.existsSync(ANALYTICS_STORE_PATH)) {
     return [];
   }
-  const lines = fs.readFileSync(ANALYTICS_STORE_PATH, "utf-8").trim().split("\n");
+  const lines = fs
+    .readFileSync(ANALYTICS_STORE_PATH, "utf-8")
+    .trim()
+    .split("\n");
   const events: AnalyticsEvent[] = [];
   for (const line of lines) {
     if (!line) continue;

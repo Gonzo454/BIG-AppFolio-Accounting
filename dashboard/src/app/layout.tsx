@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { AgentM } from "@/components/AgentM";
 import { CacheWarmer } from "@/components/CacheWarmer";
 import { OfflineProvider } from "@/components/OfflineProvider";
+import { AnalyticsProvider } from "@/components/AnalyticsProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,11 +33,13 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <main className="flex-1 ml-64 p-8">{children}</main>
-        <AgentM />
-        <CacheWarmer />
-        <OfflineProvider />
+        <AnalyticsProvider>
+          <Sidebar />
+          <main className="flex-1 ml-64 p-8">{children}</main>
+          <AgentM />
+          <CacheWarmer />
+          <OfflineProvider />
+        </AnalyticsProvider>
       </body>
     </html>
   );

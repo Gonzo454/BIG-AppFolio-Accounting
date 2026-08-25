@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   readEvents,
   aggregateEvents,
-  ANALYTICS_API_TOKEN,
+  isTokenValid,
 } from "@/lib/analytics-store";
 
 function getBearerToken(request: NextRequest): string | null {
@@ -11,13 +11,8 @@ function getBearerToken(request: NextRequest): string | null {
   return match ? match[1].trim() : null;
 }
 
-function isAuthorized(request: NextRequest): boolean {
-  if (!ANALYTICS_API_TOKEN) return true;
-  return getBearerToken(request) === ANALYTICS_API_TOKEN;
-}
-
 export async function GET(request: NextRequest) {
-  if (!isAuthorized(request)) {
+  if (!isTokenValid(getBearerToken(request))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

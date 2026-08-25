@@ -2,15 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   appendEvent,
   ANALYTICS_FORWARD_URL,
-  ANALYTICS_API_TOKEN,
+  ANALYTICS_ALLOWED_ORIGINS,
+  isTokenValid,
 } from "@/lib/analytics-store";
 import type { AnalyticsEvent } from "@/lib/analytics-store";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+function getCorsHeaders(request: NextRequest): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+
+  const origin = request.headers.get("origin");
+  if (ANALYTICS_ALLOWED_ORIGINS) {
+    if (origin && ANALYTICS_ALLOWED_ORIGINS.includes(origin)) {
+      headers["Access-Control-Allow-Origin"] = origin;
+    } else if (ANALYTICS_ALLOWED_ORIGINS.includes("*")) {
+      headers["Access-Control-Allow-Origin"] = "*";
+    }
+  } else {
+    headers["Access-Control-Allow-Origin"] = "*";
+  }
+
+  return headers;
+}
 
 function getBearerToken(request: NextRequest): string | null {
   const auth = request.headers.get("authorization") || "";
@@ -18,23 +33,20 @@ function getBearerToken(request: NextRequest): string | null {
   return match ? match[1].trim() : null;
 }
 
-function isAuthorized(request: NextRequest): boolean {
-  if (!ANALYTICS_API_TOKEN) return true;
-  return getBearerToken(request) === ANALYTICS_API_TOKEN;
-}
-
-export async function OPTIONS() {
+export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 204,
-    headers: CORS_HEADERS,
+    headers: getCorsHeaders(request),
   });
 }
 
 export async function POST(request: NextRequest) {
-  if (!isAuthorized(request)) {
+  const corsHeaders = getCorsHeaders(request);
+
+  if (!isTokenValid(getBearerToken(request))) {
     return NextResponse.json(
       { error: "Unauthorized" },
-      { status: 401, headers: CORS_HEADERS }
+      { status: 401, headers: corsHeaders }
     );
   }
 
@@ -44,7 +56,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON body" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: corsHeaders }
     );
   }
 
@@ -69,5 +81,5 @@ export async function POST(request: NextRequest) {
 
   appendEvent(event);
 
-  return NextResponse.json({ ok: true }, { headers: CORS_HEADERS });
+  return NextResponse.json({ ok: true }, { headers: corsHeaders });
 }

@@ -17,12 +17,46 @@ export const ANALYTICS_STORE_PATH =
 
 export const ANALYTICS_FORWARD_URL = process.env.ANALYTICS_FORWARD_URL;
 
-export const ANALYTICS_API_TOKEN = process.env.ANALYTICS_API_TOKEN;
+export const ANALYTICS_ALLOWED_ORIGINS =
+  process.env.ANALYTICS_ALLOWED_ORIGINS
+    ? process.env.ANALYTICS_ALLOWED_ORIGINS
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean)
+    : null;
 
-export const ANALYTICS_MAX_EVENTS = parseInt(
-  process.env.ANALYTICS_MAX_EVENTS || "10000",
-  10
-);
+const rawMax = parseInt(process.env.ANALYTICS_MAX_EVENTS || "10000", 10);
+export const ANALYTICS_MAX_EVENTS = Number.isNaN(rawMax)
+  ? 10000
+  : Math.max(1, rawMax);
+
+function loadTokens(): Set<string> {
+  const values: (string | undefined)[] = [
+    process.env.ANALYTICS_API_TOKEN,
+    process.env.NEXT_PUBLIC_ANALYTICS_API_TOKEN,
+    process.env.EXPO_PUBLIC_ANALYTICS_API_TOKEN,
+  ];
+
+  const tokens = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    for (const part of value.split(",")) {
+      const token = part.trim();
+      if (token) tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
+export const ANALYTICS_API_TOKENS = loadTokens();
+
+export function isTokenValid(token: string | null): boolean {
+  if (ANALYTICS_API_TOKENS.size === 0) {
+    return process.env.ANALYTICS_DISABLE_AUTH === "true";
+  }
+  if (!token) return false;
+  return ANALYTICS_API_TOKENS.has(token);
+}
 
 export function ensureStoreDirectory(): void {
   const dir = path.dirname(ANALYTICS_STORE_PATH);
@@ -39,11 +73,16 @@ export function appendEvent(event: AnalyticsEvent): void {
     const raw = fs.readFileSync(ANALYTICS_STORE_PATH, "utf-8").trim();
     const existingLines = raw ? raw.split("\n") : [];
     if (existingLines.length >= ANALYTICS_MAX_EVENTS) {
-      const keep = existingLines.slice(-(ANALYTICS_MAX_EVENTS - 1));
-      fs.writeFileSync(
-        ANALYTICS_STORE_PATH,
-        keep.map((l) => (l ? l + "\n" : "")).join("")
-      );
+      const keepCount = ANALYTICS_MAX_EVENTS - 1;
+      if (keepCount <= 0) {
+        fs.writeFileSync(ANALYTICS_STORE_PATH, "");
+      } else {
+        const keep = existingLines.slice(-keepCount);
+        fs.writeFileSync(
+          ANALYTICS_STORE_PATH,
+          keep.map((l) => (l ? l + "\n" : "")).join("")
+        );
+      }
     }
   }
 

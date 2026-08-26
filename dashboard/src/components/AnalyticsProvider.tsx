@@ -30,8 +30,30 @@ const SCREEN_NAMES: Record<string, string> = {
   "/budget-vs-actuals": "Budget vs Actuals",
 };
 
+const DYNAMIC_SEGMENT = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$|^\d+$/i;
+
+function scrubPath(pathname: string): string {
+  for (const pattern of Object.keys(SCREEN_NAMES)) {
+    if (!pattern.includes("[")) continue;
+    const regex = new RegExp(
+      "^" + pattern.replace(/\[.*?\]/g, "[^/]+") + "$"
+    );
+    if (regex.test(pathname)) return pattern;
+  }
+
+  if (SCREEN_NAMES[pathname]) return pathname;
+
+  return pathname
+    .split("/")
+    .map((segment) => (DYNAMIC_SEGMENT.test(segment) ? "[id]" : segment))
+    .join("/");
+}
+
 function getScreenName(pathname: string): string {
-  if (pathname.startsWith("/properties/") && pathname !== "/properties") {
+  if (
+    pathname.startsWith("/properties/") &&
+    pathname !== "/properties"
+  ) {
     return "Property Detail";
   }
   return SCREEN_NAMES[pathname] || pathname || "Unknown";
@@ -43,14 +65,14 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!launched.current) {
-      trackEvent("app_launch", { path: pathname });
+      trackEvent("app_launch", { path: pathname ? scrubPath(pathname) : undefined });
       launched.current = true;
     }
 
     if (pathname) {
       trackEvent("page_view", {
         screen: getScreenName(pathname),
-        path: pathname,
+        path: scrubPath(pathname),
       });
     }
   }, [pathname]);

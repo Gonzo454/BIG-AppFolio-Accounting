@@ -9,8 +9,6 @@ export type AnalyticsEvent = {
 
 let sessionId: string | null = null;
 
-const ANALYTICS_API_TOKEN = process.env.NEXT_PUBLIC_ANALYTICS_API_TOKEN;
-
 function getSessionId(): string {
   if (!sessionId) {
     sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -30,17 +28,10 @@ export async function trackEvent(
     sessionId: getSessionId(),
   };
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (ANALYTICS_API_TOKEN) {
-    headers["Authorization"] = `Bearer ${ANALYTICS_API_TOKEN}`;
-  }
-
   try {
     await fetch("/api/analytics/track", {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   } catch {

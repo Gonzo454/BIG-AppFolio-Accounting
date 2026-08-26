@@ -299,6 +299,7 @@ async function insertPostgres(event: AnalyticsEvent): Promise<void> {
 }
 
 async function aggregatePostgres(): Promise<AnalyticsStats> {
+  await ensurePostgresTable();
   const sql = getSql();
 
   const [{ total }] =

@@ -1,6 +1,6 @@
 "use server";
 
-import { aggregateEvents, AnalyticsStats } from "@/lib/analytics-store";
+import { aggregateEvents, type AnalyticsStats } from "@/lib/analytics-store";
 
 export type { AnalyticsStats };
 

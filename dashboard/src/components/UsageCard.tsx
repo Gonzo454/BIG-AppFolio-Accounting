@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getAnalyticsStats, AnalyticsStats } from "@/lib/analytics-actions";
+import { getAnalyticsStats, type AnalyticsStats } from "@/lib/analytics-actions";
 
 function formatTimeAgo(timestamp: string | null): string {
   if (!timestamp) return "Never";

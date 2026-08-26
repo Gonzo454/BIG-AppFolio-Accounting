@@ -1,44 +1,47 @@
-import { NextRequest, NextResponse } from "next/server";
+export const runtime = "nodejs";
+
+import { NextRequest, NextResponse, after } from "next/server";
 import {
   appendEvent,
   ANALYTICS_FORWARD_URL,
   ANALYTICS_API_TOKEN,
   ANALYTICS_ALLOWED_ORIGINS,
-  ANALYTICS_API_TOKENS,
   sanitizeEvent,
   validateBodySize,
+  parseBearerToken,
+  isIngestTokenValid,
+  storeAvailable,
 } from "@/lib/analytics-store";
-import type { AnalyticsEvent } from "@/lib/analytics-store";
+import { isRateLimited } from "@/lib/analytics-rate-limit";
 
-function getOrigin(request: NextRequest): string | null {
-  return request.headers.get("origin");
-}
-
-function isSameOrigin(request: NextRequest): boolean {
-  const secFetchSite = request.headers.get("sec-fetch-site");
-  if (secFetchSite === "same-origin") return true;
-
-  const origin = getOrigin(request);
-  if (!origin) return false;
-
+/**
+ * Same-origin hint. This is caller-controlled (a non-browser can set the Origin
+ * or Sec-Fetch-Site header) and is therefore NOT an authentication gate. It is
+ * only a convenience for the dashboard's same-origin fetch. Cross-origin
+ * requests must present a valid ingest token.
+ */
+function isLikelySameOrigin(request: NextRequest): boolean {
   const host = request.headers.get("host");
   if (!host) return false;
 
-  const allowed = ANALYTICS_ALLOWED_ORIGINS ?? [host];
-  return allowed.some((allowedOrigin) => origin === allowedOrigin);
-}
+  for (const header of ["origin", "referer"]) {
+    const value = request.headers.get(header);
+    if (value) {
+      try {
+        if (new URL(value).host === host) return true;
+      } catch {
+        // ignore malformed URL
+      }
+    }
+  }
 
-function getBearerToken(request: NextRequest): string | null {
-  const auth = request.headers.get("authorization") || "";
-  const match = auth.match(/^Bearer\s+(.+)$/);
-  return match ? match[1].trim() : null;
+  const secFetchSite = request.headers.get("sec-fetch-site");
+  return secFetchSite === "same-origin";
 }
 
 function isAuthorized(request: NextRequest): boolean {
-  if (isSameOrigin(request)) return true;
-  const token = getBearerToken(request);
-  if (!token) return false;
-  return ANALYTICS_API_TOKENS.has(token);
+  if (isLikelySameOrigin(request)) return true;
+  return isIngestTokenValid(parseBearerToken(request));
 }
 
 function getCorsHeaders(request: NextRequest): Record<string, string> {
@@ -47,11 +50,9 @@ function getCorsHeaders(request: NextRequest): Record<string, string> {
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 
-  const origin = getOrigin(request);
-  if (ANALYTICS_ALLOWED_ORIGINS && origin) {
-    if (ANALYTICS_ALLOWED_ORIGINS.includes(origin)) {
-      headers["Access-Control-Allow-Origin"] = origin;
-    }
+  const origin = request.headers.get("origin");
+  if (origin && ANALYTICS_ALLOWED_ORIGINS?.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
   }
 
   return headers;
@@ -66,6 +67,14 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const corsHeaders = getCorsHeaders(request);
+
+  const available = storeAvailable();
+  if (!available.ok) {
+    return NextResponse.json(
+      { error: available.reason },
+      { status: 503, headers: corsHeaders }
+    );
+  }
 
   if (!isAuthorized(request)) {
     return NextResponse.json(
@@ -100,32 +109,36 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const enriched: AnalyticsEvent = {
-    ...event,
-    receivedAt: new Date().toISOString(),
-  };
-
-  if (ANALYTICS_FORWARD_URL) {
-    const forwardHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (ANALYTICS_API_TOKEN) {
-      forwardHeaders["Authorization"] = `Bearer ${ANALYTICS_API_TOKEN}`;
-    }
-
-    // Fire-and-forget with a 3-second timeout so a slow upstream cannot stall
-    // the analytics response or the local append.
-    fetch(ANALYTICS_FORWARD_URL, {
-      method: "POST",
-      headers: forwardHeaders,
-      body: JSON.stringify(enriched),
-      signal: AbortSignal.timeout(3000),
-    }).catch(() => {
-      // Forwarding is best-effort.
-    });
+  const rateLimit = isRateLimited(request, event.sessionId);
+  if (rateLimit.limited) {
+    return NextResponse.json(
+      { error: rateLimit.message },
+      { status: 429, headers: corsHeaders }
+    );
   }
 
-  appendEvent(enriched);
+  await appendEvent(event);
+
+  const forwardUrl = ANALYTICS_FORWARD_URL;
+  const forwardToken = ANALYTICS_API_TOKEN;
+  if (forwardUrl && forwardToken) {
+    // Schedule forwarding after the response so a slow upstream cannot stall
+    // the analytics ping. next/server after() keeps the instance alive until
+    // the scheduled work completes.
+    after(() => {
+      fetch(forwardUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${forwardToken}`,
+        },
+        body: JSON.stringify(event),
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {
+        // Forwarding is best-effort.
+      });
+    });
+  }
 
   return NextResponse.json({ ok: true }, { headers: corsHeaders });
 }

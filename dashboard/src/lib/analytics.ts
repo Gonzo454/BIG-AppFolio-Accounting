@@ -1,5 +1,5 @@
 export type AnalyticsEvent = {
-  event: "app_launch" | "page_view";
+  event: "app_open" | "screen_view";
   screen?: string;
   path?: string;
   platform?: string;

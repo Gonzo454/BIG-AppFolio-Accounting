@@ -9,6 +9,7 @@ import { resolvePersistedRange } from "@/lib/date-range";
 import { PortfolioPerformanceChart } from "@/components/PortfolioPerformanceChart";
 import { PortfolioContributionDonut } from "@/components/PortfolioContributionDonut";
 import { PortfolioReportsSection } from "@/components/PortfolioReportsSection";
+import { UsageCard } from "@/components/UsageCard";
 
 interface SummaryData {
   jrw: {
@@ -424,6 +425,9 @@ export default function CommandCenterPage() {
 
         </div>
       </div>
+
+      {/* Usage */}
+      <UsageCard />
     </div>
   );
 }

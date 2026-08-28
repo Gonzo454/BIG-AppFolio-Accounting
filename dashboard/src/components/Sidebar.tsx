@@ -18,6 +18,7 @@ const jrwNav = [
 const bigNav = [
   { href: "/big/dashboard", label: "Management Dashboard", icon: "deer" },
   { href: "/big/pnl", label: "P&L Statement", icon: "📋" },
+  { href: "/kpi-dashboard", label: "KPI Dashboard", icon: "📈" },
 ];
 
 const pvNav = [
